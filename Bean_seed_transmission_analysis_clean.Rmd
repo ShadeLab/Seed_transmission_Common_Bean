@@ -1,0 +1,1089 @@
+---
+title: "Bean Seed Transmission Analysis"
+author: "Abby Sulesky"
+date: "2023-12-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load packages
+```{r packages, results = FALSE, message=FALSE, warning=FALSE}
+require(microViz)
+require(corncob)
+require(ggraph)
+require(DT)
+library(phyloseq)
+library(ggplot2)
+library(tidyverse)
+library(decontam)
+library(scales)
+library(vegan)
+library(microbiome)
+library(dplyr)
+library(patchwork)
+library(pairwiseAdonis)
+library(indicspecies)
+library(VennDiagram)
+library(UpSetR)
+library(rstatix)
+library(paletteer)
+library(ggthemes)
+library(RColorBrewer)
+library(biomeUtils)
+library(car)
+```
+
+
+## Rarefaction curve
+```{r rarefaction_curve}
+# Read in decontaminated phyloseq object
+seed_phyloseq_decontam <- readRDS(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/seed_phyloseq_decontam.rds")
+
+sum(sample_sums(seed_phyloseq_decontam))
+# 422719
+sort(sample_sums(seed_phyloseq_decontam))
+# 456-5788
+
+# find minimum number of reads for rarefying
+minreads <- min(sample_sums(seed_phyloseq_decontam))
+minreads
+
+plot(sort(sample_sums(seed_phyloseq_decontam)), main="Reads per sample after decontam", xlab="Sample (n=164, ordered by # of reads)", ylab="16S reads per sample")
+sums <- as.vector(sample_sums(seed_phyloseq_decontam))
+read_list <- sort(sums)
+
+# Check rarefaction curve
+ASVtable <- t(otu_table(seed_phyloseq_decontam)) 
+class(ASVtable) <- "matrix"
+
+# make rarecurve, "tidy" makes ggplot friendly object
+rarecurve <- rarecurve(ASVtable, step = 10, xlab = "Sample Size", ylab = "ASV", label = FALSE, tidy = TRUE)
+
+rarecurve_plot <- ggplot(rarecurve, aes(Sample, Species)) + geom_point(size=0.1) + labs(title="Seed rarefaction curves", x="16S reads per sample")# + geom_vline(xintercept = min4, col="red")
+plot(rarecurve_plot)
+
+#ggsave(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/rarefaction_curve.png", plot=rarecurve_plot, width=8, height=5, units="in")
+```
+
+
+# Statistics
+
+### Alpha diversity
+```{r alpha_diversity}
+#sample_data(seed_phyloseq_decontam)
+
+# add plate to metadata
+#plate <- read.csv("seq_plate.csv")
+#new_meta <- left_join(meta, plate)
+#write.csv(new_meta, "seed_meta_plate.csv")
+
+# Fix metadata, g1 sample missing G1_treatment, add "line" column
+# write.csv(data.frame(sample_data(seed_phyloseq_decontam)), "seed_meta_update.csv")
+# meta <- read.csv("seed_meta_update.csv", sep=",", row.names=1)
+# META <- sample_data(meta)
+# otu <- read.csv("seed_asv_table.csv", sep=",", row.names=1)
+# OTU <- otu_table(otu, taxa_are_rows = TRUE)
+# tax <- tax_table(seed_phyloseq_decontam)
+# 
+# seed_phyloseq_decontam <- merge_phyloseq(META, OTU, tax)
+# sample_data(seed_phyloseq_decontam)
+# 
+# saveRDS(seed_phyloseq_decontam, file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/seed_phyloseq_decontam_updatemeta.rds")
+
+seed_phyloseq_decontam <- readRDS(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/seed_phyloseq_decontam_updatemeta.rds")
+
+# Add tree to phyloseq object
+seed_tree <- read_tree(treefile = "/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/tree.nwk")
+
+seed_phyloseq_decontam <- merge_phyloseq(seed_phyloseq_decontam, seed_tree)
+
+#tax_table <- data.frame(tax_table(seed_phyloseq_decontam))
+#write.csv(tax_table, file = "/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/seed_tax_table.csv")
+
+# code for background theme for ggplot so I don't have to have it in every plot
+my_theme <- theme(panel.background = element_rect(fill = "white", colour = "white"), 
+             panel.grid.major = element_line(size = 0.25, linetype = 'solid', colour = "light gray"),
+             panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "light gray"))
+
+# code for line colors 
+control_colors <- c("black","#404040","#606060", "#C0C0C0","#E0E0E0","#CCE5FF", "#66B2FF", "#3399FF", "#0000FF", "#000099", "#9933FF", "#4E1D92")
+drought_colors <- c("#990000", "#CC0000", "#FF0000", "#FF6E6E", "#FF6F00", "#FF8900", "#FFA200", "#FFB266", "#FFCC99", "#FFCC00", "#FFEF00", "#FFFF73")
+nutrient_colors <- c("#006633", "#18902B", "#01DB01", "#49FF49", "#49FFC3", "#01DE94", "#13A976", "#05895E", "#058989", "#3ECACA", "#0EF9F9", "#A1FFFF")
+line_colors <- c(control_colors, drought_colors, nutrient_colors)
+line_list <- c('C10', 'C11', 'C12', 'C13', 'C15', 'C1B', 'C2', 'C2B', 'C4', 'C5', 'C6', 'C8', 'D10', 'D11', 'D13', 'D14', 'D15', 'D1B', 'D2B', 'D5', 'D6', 'D7', 'D8', 'D9', 'N10', 'N11', 'N13', 'N15', 'N1B', 'N2', 'N2B', 'N3', 'N3B', 'N5', 'N5B', 'N8')
+control_list <- c('C10', 'C11', 'C12', 'C13', 'C15', 'C1B', 'C2', 'C2B', 'C4', 'C5', 'C6', 'C8')
+drought_list <- c('D10', 'D11', 'D13', 'D14', 'D15', 'D1B', 'D2B', 'D5', 'D6', 'D7', 'D8', 'D9')
+nutrient_list <- c('N10', 'N11', 'N13', 'N15', 'N1B', 'N2', 'N2B', 'N3', 'N3B', 'N5', 'N5B', 'N8')
+
+# observed
+observed_alphaplot <- plot_richness(seed_phyloseq_decontam, x="G1_treatment", measures=c("Observed"), color = "G2_treatment") + geom_point(color="white") + geom_violin()  + scale_color_manual(name = "G2 Treatment", values=c("#4E1D92", "#3399FF", "#FFCC00", "#18902B"), labels = c("n/a", "Control", "Drought", "Nutrient"))  + facet_grid(cols=vars(Generation), scales="free")+ geom_point(position = position_dodge(width = 0.9), size = 1) + ylab("Species Richness (# of ASVs)") + my_theme #+ geom_jitter(width=0.2) + scale_y_continuous(limits=c(20, 80))+ labs(title="Seed 16S Oberserved Alpha Diversity (Non-rarefied)")
+
+
+observed_alphaplot
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/alpha_diversity.png", plot=observed_alphaplot, width=8, height=5, units="in")
+
+
+# stats 
+seed_alpha <- estimate_richness(seed_phyloseq_decontam, measures=c("Observed"))
+seed_alpha <- cbind(rownames(seed_alpha), seed_alpha) 
+colnames(seed_alpha)[1] <- "SampleID"
+#seed_alpha
+
+seed_metadata <- data.frame(sample_data(seed_phyloseq_decontam))
+
+seed_data <- left_join(seed_metadata, seed_alpha)
+
+hist(filter(seed_data, Generation == "G0")$Observed)
+hist(filter(seed_data, Generation == "G1")$Observed)
+hist(filter(seed_data, Generation == "G2")$Observed)
+
+leveneTest(Observed ~ Generation, seed_data)
+leveneTest(Observed ~ G1_treatment, seed_data)
+leveneTest(Observed ~ G1_G2, seed_data)
+
+seed_anova_observed <- aov(Observed ~ Generation+G1_treatment+G1_G2, data=seed_data)
+summary(seed_anova_observed)
+
+
+
+# stats seed PD
+# adds PD and species richness to end of sample data 
+seed_data_PD <- calculatePD(seed_phyloseq_decontam, justDF=TRUE, include_root = FALSE)
+
+pd_plot <- ggplot(seed_data_PD, aes(x=G1_treatment, y=PD, color=G2_treatment)) + geom_violin() + labs(title="Phylogenetic Diversity (Non-rarefied)") + scale_color_manual(name = "G2 Treatment", values=c("#4E1D92", "#3399FF", "#FFCC00", "#18902B"), labels = c("n/a", "Control", "Drought", "Nutrient")) + facet_grid(cols=vars(Generation), scales="free") + geom_point(position = position_dodge(width = 0.9)) + my_theme 
+pd_plot
+
+
+# Can subset the data to ask more questions about alpha diversity within generations
+
+seed_PD_G2 <- subset(seed_data_PD, Generation == "G2")
+
+pd_plot_G2 <- ggplot(seed_PD_G2, aes(x=line, y=PD)) + geom_point(aes(color=line), size=2) + ylab("G2 Faith's PD") + xlab("Parent Line") + my_theme + guides(color=guide_legend(title="Parent Line", ncol=3)) + facet_wrap(~G1_treatment, scales="free_x") + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) + theme(legend.key = element_rect(fill = "white"), axis.text.x = element_blank()) 
+
+pd_plot_G2
+
+sr_plot_G2 <- ggplot(seed_PD_G2, aes(x=line, y=SR)) + geom_point(aes(color=line), size=2) + ylab("G2 Species Richness (# of ASVs)") + xlab("Parent Line") + my_theme + theme(legend.position = "none", axis.text.x = element_blank()) + facet_wrap(~G1_treatment, scales="free_x") + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) 
+
+sr_plot_G2
+
+# combine plots with patchwork
+richness_plots <- observed_alphaplot / (sr_plot_G2 | pd_plot_G2) + plot_annotation(tag_levels = "A")
+richness_plots
+
+#ggsave("/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/alpha_patchwork.png", plot=richness_plots, width = 12, height=10, units="in")
+
+leveneTest(SR ~ line, data=seed_PD_G2)
+seed_anova_SR_line <- aov(SR ~ line, data=seed_PD_G2)
+summary(seed_anova_SR_line)
+
+SR_tukey <- tukey_hsd(seed_PD_G2, SR ~ line)
+
+leveneTest(PD ~ line, data=seed_PD_G2)
+seed_anova_PD_line <- aov(PD ~ line, data=seed_PD_G2)
+summary(seed_anova_PD_line)
+
+```
+
+
+### Beta Diversity - Weighted unifrac
+```{r beta_diversity}
+# Full dataset ordination - Weighted unifrac
+# ordinate 
+seed_WU_dist <- distance(physeq=seed_phyloseq_decontam, method = "wunifrac")
+
+seed_WU_ord <- ordinate(physeq = seed_phyloseq_decontam, method="PCoA", distance=seed_WU_dist)
+
+# plot ordination
+seed_full_WU_PCoA <- plot_ordination(seed_phyloseq_decontam, seed_WU_ord, color="Generation", shape="Generation", ) + theme(aspect.ratio=1) + geom_point(size=3) + my_theme 
+plot(seed_full_WU_PCoA)
+
+# PERMANOVA
+seed_WU_metadata <- data.frame(sample_data(seed_phyloseq_decontam))
+set.seed(8)
+seed_full_WU_adonis <- adonis2(formula = seed_WU_dist ~ Generation+Treatment, permutations = 9999, data = seed_WU_metadata)
+seed_full_WU_adonis
+
+# Gen and treatment is not signifiacnt with weighted unifrac
+
+# subset by generation
+seed_G1_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation == "G1", .keep_all_taxa = F)
+
+seed_G2_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation == "G2", .keep_all_taxa = F)
+
+# ordinate G1 weighted unifrac
+# remove outliers in figure
+seed_G1_phyloseq_fix <- seed_G1_phyloseq %>% ps_filter(SampleID != "G1_C10")
+seed_G1_phyloseq_fix <- seed_G1_phyloseq_fix %>% ps_filter(SampleID != "G1_C5")
+
+seed_G1_wunifrac_dist <- distance(physeq=seed_G1_phyloseq_fix, method = "wunifrac")
+
+seed_G1_wunifrac_ord <- ordinate(physeq = seed_G1_phyloseq_fix, method="PCoA", distance=seed_G1_wunifrac_dist)
+
+seed_G1_wunifrac_PCoA <- plot_ordination(seed_G1_phyloseq_fix, seed_G1_wunifrac_ord, color="G1_treatment", shape="G1_treatment" ) + theme(aspect.ratio=1) + geom_point(size=3) + my_theme 
+plot(seed_G1_wunifrac_PCoA)
+
+
+# include outlier samples for statistical test 
+# PERMANOVA
+seed_G1_WU_metadata <- data.frame(sample_data(seed_G1_phyloseq))
+seed_G1_wunifrac_dist <- distance(physeq=seed_G1_phyloseq, method = "wunifrac")
+
+set.seed(8)
+seed_G1_WU_adonis <- adonis2(formula = seed_G1_wunifrac_dist ~ G1_treatment, permutations = 9999, data = seed_G1_WU_metadata)
+
+seed_G1_WU_adonis
+
+# seed_G1_WU_pairwise <- pairwise.adonis2(seed_G1_wunifrac_dist ~ G1_treatment, data=seed_G1_WU_metadata, nperm=9999)
+# seed_G1_WU_pairwise
+
+
+
+# ordinate G2 weighted unifrac 
+# remove outlier for figure
+seed_G2_phyloseq_fix <- seed_G2_phyloseq %>% 
+  ps_filter(SampleID != "G2_9", .keep_all_taxa = F)
+
+seed_G2_wunifrac_dist_fix <- distance(physeq=seed_G2_phyloseq_fix, method = "wunifrac")
+
+seed_G2_wunifrac_ord <- ordinate(physeq = seed_G2_phyloseq_fix, method="PCoA", distance=seed_G2_wunifrac_dist_fix)
+
+seed_G2_wunifrac_PCoA <- plot_ordination(seed_G2_phyloseq_fix, seed_G2_wunifrac_ord, color="line", shape="G1_treatment" ) + theme(aspect.ratio=1) + geom_point(size=3) + guides(color=guide_legend(title="Parent Line", ncol=3)) + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) + theme(legend.key = element_rect(fill = "white")) + my_theme
+plot(seed_G2_wunifrac_PCoA)
+
+# include outlier in the statistical test
+# PERMANOVA
+seed_G2_WU_metadata <- data.frame(sample_data(seed_G2_phyloseq))
+seed_G2_wunifrac_dist <- distance(physeq=seed_G2_phyloseq, method = "wunifrac")
+
+set.seed(8)
+seed_G2_WU_adonis <- adonis2(formula = seed_G2_wunifrac_dist ~ G1_treatment+G2_treatment+line, permutations = 9999, data = seed_G2_WU_metadata)
+
+seed_G2_WU_adonis
+
+# seed_G2_WU_pairwise <- pairwise.adonis2(seed_G2_wunifrac_dist ~ G1_treatment+G2_treatment+line, data=seed_G2_WU_metadata, nperm=1000)
+# seed_G2_WU_pairwise
+
+
+
+
+
+# 3-plot weighted unifrac ####
+# Subset by G1 treatment for easier visualization
+seed_G2_controlG1 <- seed_G2_phyloseq %>% 
+  ps_filter(G1_treatment == "Control", .keep_all_taxa = F)
+
+seed_G2_droughtG1 <- seed_G2_phyloseq %>% 
+  ps_filter(G1_treatment == "Drought", .keep_all_taxa = F)
+
+seed_G2_nutrientG1 <- seed_G2_phyloseq %>% 
+  ps_filter(G1_treatment == "Nutrient", .keep_all_taxa = F)
+
+### CONTROL
+
+# W unifrac
+seed_G2_controlG1_fix <- seed_G2_controlG1 %>% 
+  ps_filter(SampleID != "G2_9", .keep_all_taxa = F)
+
+seed_G2_C_WU <- distance(physeq=seed_G2_controlG1_fix, method = "wunifrac")
+
+seed_G2_C_WU_ord <- ordinate(physeq = seed_G2_controlG1_fix, method="PCoA", distance=seed_G2_C_WU)
+
+# plot ordination
+seed_G2_C_WU_PCoA <- plot_ordination(seed_G2_controlG1_fix, seed_G2_C_WU_ord, color="line") + theme(aspect.ratio=1) + geom_point(size=3) +geom_polygon(aes(fill=line), inherit.aes=TRUE, alpha=0.25, linetype = "blank") + facet_wrap(vars(G1_treatment)) + scale_color_manual(name = "Parent Line", values=control_colors, labels = control_list) + scale_fill_manual(name = "Parent Line", values=control_colors, labels = control_list) + my_theme + theme(plot.caption=element_text(size=14), legend.key = element_rect(fill = "white")) # + labs(caption="Parent line p=0.0526")
+seed_G2_C_WU_PCoA
+
+#use the non-fixed physeq for PERMANOVA stats
+seed_G2_C_WU <- distance(physeq=seed_G2_controlG1, method = "wunifrac")
+seed_G2_C_WU_meta <- data.frame(sample_data(seed_G2_controlG1))
+set.seed(8)
+seed_G2_C_WU_adonis <- adonis2(formula = seed_G2_C_WU ~ G2_treatment+line, permutations = 9999, data = seed_G2_C_WU_meta)
+seed_G2_C_WU_adonis
+# line  r2= 0.35319 F=1.2189 p=0.0526
+
+
+### DROUGHT
+
+# W unifrac
+seed_G2_D_WU <- distance(physeq=seed_G2_droughtG1, method = "wunifrac")
+
+seed_G2_D_WU_ord <- ordinate(physeq = seed_G2_droughtG1, method="PCoA", distance=seed_G2_D_WU)
+
+# plot ordination
+seed_G2_D_WU_PCoA <- plot_ordination(seed_G2_droughtG1, seed_G2_D_WU_ord, color="line") + theme(aspect.ratio=1) + geom_point(size=3) +geom_polygon(aes(fill=line), inherit.aes=TRUE, alpha=0.25, linetype = "blank") + facet_wrap(vars(G1_treatment)) + scale_color_manual(name = "Parent Line", values=drought_colors, labels = drought_list) + scale_fill_manual(name = "Parent Line", values=drought_colors, labels = drought_list) + my_theme + theme(plot.caption=element_text(size=14), legend.key = element_rect(fill = "white"))# + labs(caption="Parent line p=0.0021**")
+seed_G2_D_WU_PCoA
+
+seed_G2_D_WU_meta <- data.frame(sample_data(seed_G2_droughtG1))
+
+# PERMANOVA
+set.seed(8)
+seed_G2_D_WU_adonis <- adonis2(formula = seed_G2_D_WU ~ G2_treatment+line, permutations = 9999, data = seed_G2_D_WU_meta)
+seed_G2_D_WU_adonis
+# line  r2= 0.40311 F=1.4637 p=0.0021 **
+
+
+### NUTRIENT
+
+# W unifrac
+seed_G2_N_WU <- distance(physeq=seed_G2_nutrientG1, method = "wunifrac")
+
+seed_G2_N_WU_ord <- ordinate(physeq = seed_G2_nutrientG1, method="PCoA", distance=seed_G2_N_WU)
+
+# plot ordination
+seed_G2_N_WU_PCoA <- plot_ordination(seed_G2_nutrientG1, seed_G2_N_WU_ord, color="line") + theme(aspect.ratio=1) + geom_point(size=3) +geom_polygon(aes(fill=line), inherit.aes=TRUE, alpha=0.25, linetype = "blank") + facet_wrap(vars(G1_treatment))  + scale_color_manual(name = "Parent Line", values=nutrient_colors, labels = nutrient_list) + scale_fill_manual(name = "Parent Line", values=nutrient_colors, labels = nutrient_list) + my_theme + theme(plot.caption=element_text(size=14), legend.key = element_rect(fill = "white"))#+ labs(caption="Parent line p=0.2687")
+seed_G2_N_WU_PCoA
+
+# PERMANOVA
+seed_G2_N_WU_meta <- data.frame(sample_data(seed_G2_nutrientG1))
+
+set.seed(8)
+seed_G2_N_WU_adonis <- adonis2(formula = seed_G2_N_WU ~ G2_treatment+line, permutations = 9999, data = seed_G2_N_WU_meta)
+seed_G2_N_WU_adonis
+# line  r2= 0.34740 F=1.1142 p=0.2687
+
+
+
+### Combine with patchwork
+
+seed_G2_3plot_WU <- (seed_G2_C_WU_PCoA + seed_G2_D_WU_PCoA) / seed_G2_N_WU_PCoA + plot_layout(widths = c(2, 1)) + plot_annotation(tag_levels = "A")
+seed_G2_3plot_WU
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/seed_G2_3plot_WU.png", plot=seed_G2_3plot_WU, width=12, height=10, units="in")
+
+# adjusted alignment of labels and legends in powerpoint
+
+```
+
+
+# beta dispersion
+```{r betadisper}
+# functions for plotting with ggplot ####
+# getting distances from betadisper() object
+betadisper_distances <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(distances = unlist(model$distances))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting eigenvalues out of betadisper() object
+betadisper_eigenvalue <- function(model){
+  temp <- data.frame(eig = unlist(model$eig))
+  temp$PCoA <- row.names(temp)
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting the eigenvectors out of a betadisper() object
+betadisper_eigenvector <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(unlist(model$vectors))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# get centroids
+betadisper_centroids <- function(model){
+  temp <- data.frame(unlist(model$centroids))
+  temp$group <- row.names(temp)
+  temp <- dplyr::select(temp, group, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# betadisper data
+get_betadisper_data <- function(model){
+  temp <- list(distances = betadisper_distances(model),
+               eigenvalue = betadisper_eigenvalue(model),
+               eigenvector = betadisper_eigenvector(model),
+               centroids = betadisper_centroids(model))
+  return(temp)
+}
+
+
+# dispersion on G2 w unifrac ####
+fullG2_wunif_betadisper <- betadisper(seed_G2_wunifrac_dist, group=as.factor(seed_G2_WU_metadata$line), type = "median", bias.adjust=TRUE)
+fullG2_wunif_betadisper
+
+#wunif_permute <- permutest(fullG2_wunif_betadisper, pairwise=TRUE, permutations=9999)
+#wunif_permute
+
+# no significance between G1 trt   Df=2 Sum Sq=0.0000848 Mean Sq=4.2392e-05 F=0.5425   N.perm=9999 p=0.5878
+# no significance between lines       35 0.024579 0.00070225 1.0825   9999 0.3714
+
+boxplot(fullG2_wunif_betadisper)
+# make figure with outlier removed
+seed_G2_WU_metadata <- data.frame(sample_data(seed_G2_phyloseq_fix))
+fullG2_wunif_betadisper <- betadisper(seed_G2_wunifrac_dist_fix, group=as.factor(seed_G2_WU_metadata$line), type = "median", bias.adjust=TRUE)
+
+# get betadisper data #
+fullG2_wunif_BDdata <- get_betadisper_data(fullG2_wunif_betadisper)
+
+fullG2_wunif_BDdata$eigenvalue <- mutate(fullG2_wunif_BDdata$eigenvalue, percent = eig/sum(eig))
+
+fullG2_wunif_BDdata$chull <- group_by(fullG2_wunif_BDdata$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+colnames(fullG2_wunif_BDdata$distances)[2] <- "SampleID"
+seed_G2_metadata_fullG2_wunif <- left_join(seed_G2_WU_metadata, fullG2_wunif_BDdata$distances, by="SampleID")
+
+# Now the dataframes are ready to be customized in ggplot
+
+fullG2_wunif_disper_plot <- ggplot(seed_G2_metadata_fullG2_wunif, aes(x=G1_treatment, y=distances, color = line)) +
+  geom_boxplot(aes(x=G1_treatment, y=distances), inherit.aes = FALSE) +
+  geom_point(size=2, position = position_dodge(width = 0.8)) +
+  my_theme + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) +
+  ylab('Distance to Spatial Median') + xlab("G1 Treatment") + theme(legend.key = element_rect(fill = "white"), legend.position = "none") 
+fullG2_wunif_disper_plot
+
+# combine with the PCoA for figure with patchwork
+wunifrac_w_disper <- seed_G2_wunifrac_PCoA / fullG2_wunif_disper_plot + plot_annotation(tag_levels = "A")
+wunifrac_w_disper
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/wunifrac_w_disper.png", plot=wunifrac_w_disper, width=8.5, height=10, units="in")
+
+
+```
+
+## overlapping taxa analysis
+```{r overlap_UpsetR}
+# find the taxa that are overlapping between all samples, between generations, within lines, etc.
+
+G0_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation == "G0", .keep_all_taxa = TRUE)
+
+G1_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation == "G1", .keep_all_taxa = TRUE)
+
+G2_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation == "G2", .keep_all_taxa = TRUE)
+
+G1_G2_phyloseq <- seed_phyloseq_decontam %>% 
+  ps_filter(Generation != "G0", .keep_all_taxa = FALSE)
+
+# bean seed core taxa ASV IDs
+core_taxa <- c("b4289ab0a9a00034c1fbce477b2c4ded", "cc761daf51f27c423da57f3f1f0ff5cc", "45e3696d78d57fc35094a6cf67e6414b", "5648dccee530d68ceb3e4d7d22cf8756", "83e948f389f9d97b0c975afc880989e8", "496ecde24f9ab698992413d3d4f04b5f")
+
+count_16S_g0 <- t(otu_table(G0_phyloseq))
+count_16S_g0[count_16S_g0 > 0] <- 1
+df_16S_g0 <- as.data.frame(count_16S_g0)
+rel.abu_g0 <- data.frame(taxa_sums(G0_phyloseq))
+rel.abu_g0$log <- log10(rel.abu_g0$taxa_sums.G0_phyloseq)
+df_16Sf_upset_g0 <-merge.data.frame(df_16S_g0, rel.abu_g0, by="row.names", all.x=TRUE)
+g0_pa_list <- c(rel.abu_g0$taxa_sums.G0_phyloseq. > 0)
+rel.abu_g0$pa <- g0_pa_list
+g0_taxa_list <- rownames(rel.abu_g0[rel.abu_g0$pa == TRUE,])
+
+
+count_16S_g1 <- t(otu_table(G1_phyloseq))
+count_16S_g1[count_16S_g1 > 0] <- 1
+df_16S_g1 <- as.data.frame(count_16S_g1)
+rel.abu_g1 <- data.frame(taxa_sums(G1_phyloseq))
+rel.abu_g1$log <- log10(rel.abu_g1$taxa_sums.G1_phyloseq)
+df_16Sf_upset_g1 <-merge.data.frame(df_16S_g1, rel.abu_g1, by="row.names", all.x=TRUE)
+g1_pa_list <- c(rel.abu_g1$taxa_sums.G1_phyloseq. > 0)
+rel.abu_g1$pa <- g1_pa_list
+g1_taxa <- rel.abu_g1[rel.abu_g1$pa == TRUE,]
+g1_taxa_list <- rownames(g1_taxa)
+
+
+count_16S_g2 <- t(otu_table(G2_phyloseq))
+count_16S_g2[count_16S_g2 > 0] <- 1
+df_16S_g2 <- as.data.frame(count_16S_g2)
+rel.abu_g2 <- data.frame(taxa_sums(G2_phyloseq))
+rel.abu_g2$log <- log10(rel.abu_g2$taxa_sums.G2_phyloseq)
+df_16Sf_upset_g2 <-merge.data.frame(df_16S_g2, rel.abu_g2, by="row.names", all.x=TRUE)
+g2_pa_list <- c(rel.abu_g2$taxa_sums.G2_phyloseq. > 0)
+rel.abu_g2$pa <- g2_pa_list
+g2_taxa <- rel.abu_g2[rel.abu_g2$pa == TRUE,]
+g2_taxa_list <- rownames(g2_taxa)
+
+
+g0_g1_overlap <- intersect(g1_taxa_list, g0_taxa_list)
+g1_g2_overlap <- intersect(g2_taxa_list, g1_taxa_list)
+all_gen_overlap <- intersect(g0_taxa_list, g1_g2_overlap)
+core_in_all <- intersect(all_gen_overlap, core_taxa)
+core_in_g1g2 <- intersect(g1_g2_overlap, core_taxa)
+core_in_g1 <- intersect(g1_taxa_list, core_taxa)
+core_in_g2 <- intersect(g2_taxa_list, core_taxa)
+core_in_g0 <- intersect(g0_taxa_list, core_taxa)
+
+
+# in dplyer
+# make large data frame with ASVs and metadata
+asv_table <- data.frame(t(otu_table(G1_G2_phyloseq)))
+asv_table[asv_table > 0] <- 1
+asv_table <- cbind(rownames(asv_table), asv_table) 
+colnames(asv_table)[1] <- "SampleID"
+
+asv_table_long <- asv_table %>% tidyr::gather(key="asvID", value="pa", -SampleID)
+
+metadata <- data.frame(sample_data(G1_G2_phyloseq))
+full_data <- left_join(metadata, asv_table_long)
+
+full_data$growth_chamber <- as.factor(full_data$growth_chamber)
+
+new_full_data <- full_data %>% group_by(line, Generation, asvID) %>%
+    summarise(pa_max = max(pa), pa_samples = sum(pa)) %>% ungroup() %>% filter(pa_max == 1)
+#length(unique(new_full_data$asvID))
+
+new_full_data_summary <- new_full_data %>% group_by(line, asvID) %>% mutate(n_gen = sum(pa_max)) %>% arrange(asvID, line) %>% mutate(intersects = if_else(n_gen == 2, "G1_G2\nOverlap", Generation)) %>% select(line, asvID, n_gen, intersects) %>% unique() %>% group_by(line, intersects) %>% summarise(n_asv = n())
+new_full_data_summary
+
+
+
+# add total # of ASVs in lines
+summed_data <- new_full_data_summary %>% group_by(line) %>% summarise(n_asv = sum(n_asv)) %>% mutate(intersects= "Total") %>% select(line, intersects, n_asv) %>% rbind(new_full_data_summary) %>% arrange(line) 
+summed_data
+
+# add line treatment label
+summed_data <- summed_data %>% mutate(G1_Treatment = if_else(substr(line, 1, 1) %in% "C", "Control",
+                                      if_else(substr(line, 1, 1) %in% "N", "Nutrient",
+                                      if_else(substr(line, 1, 1) %in% "D", "Drought", NA))))
+
+# calculate proportions
+# manually entered the total ASVs per line from summed data into each line of this code
+# filter(summed_data, intersects == "Total") use to look at totals
+# filter out the "Total" lines at end because all = 1 
+proportion_data <- summed_data %>% mutate(proportion = if_else(line == "C10", (n_asv/84),
+                                                        if_else(line == "C11", (n_asv/112),
+                                                        if_else(line == "C12", (n_asv/106),
+                                                        if_else(line == "C13", (n_asv/84),
+                                                        if_else(line == "C15", (n_asv/75),
+                                                        if_else(line == "C1B", (n_asv/80),
+                                                        if_else(line == "C2", (n_asv/104),
+                                                        if_else(line == "C2B", (n_asv/77),
+                                                        if_else(line == "C4", (n_asv/114),
+                                                        if_else(line == "C5", (n_asv/75),
+                                                        if_else(line == "C6", (n_asv/106),
+                                                        if_else(line == "C8", (n_asv/99),
+                                                        if_else(line == "D10", (n_asv/83),
+                                                        if_else(line == "D11", (n_asv/77),
+                                                        if_else(line == "D13", (n_asv/113),
+                                                        if_else(line == "D14", (n_asv/72),
+                                                        if_else(line == "D15", (n_asv/87),
+                                                        if_else(line == "D1B", (n_asv/123),
+                                                        if_else(line == "D2B", (n_asv/109),
+                                                        if_else(line == "D5", (n_asv/90),
+                                                        if_else(line == "D6", (n_asv/91),
+                                                        if_else(line == "D7", (n_asv/100),
+                                                        if_else(line == "D8", (n_asv/73),
+                                                        if_else(line == "D9", (n_asv/79),
+                                                        if_else(line == "N10", (n_asv/72),
+                                                        if_else(line == "N11", (n_asv/69),
+                                                        if_else(line == "N13", (n_asv/83),
+                                                        if_else(line == "N15", (n_asv/91),
+                                                        if_else(line == "N1B", (n_asv/106),
+                                                        if_else(line == "N2", (n_asv/122),
+                                                        if_else(line == "N2B", (n_asv/102),
+                                                        if_else(line == "N3", (n_asv/91),
+                                                        if_else(line == "N3B", (n_asv/115),
+                                                        if_else(line == "N5", (n_asv/110),
+                                                        if_else(line == "N5B", (n_asv/131),
+                                                        if_else(line == "N8", (n_asv/85), NA))))))))))))))))))))))))))))))))))))) %>% filter(intersects != "Total")
+
+# calculate min, mean and max proportion for overlap taxa
+overlap_prop <- proportion_data %>% filter(intersects == "G1_G2\nOverlap")
+mean(overlap_prop$proportion) # 0.2899205
+min(overlap_prop$proportion) # 0.1717172
+max(overlap_prop$proportion) # 0.4520548
+
+# use for # ASV plot
+x_order <- c("Total", "G1", "G2", "G1_G2\nOverlap")
+x_labels <- c("Total ASVs\nin line", "G1 Only", "G2 Only", "G1_G2\nOverlap")
+
+# plot # of ASVs in each line and how many are in G1, G2 or overlapping
+overlap_plot <- ggplot(data=summed_data, aes(x=factor(intersects, level=x_order), y=n_asv)) + geom_violin() + geom_jitter(width=0.2, size=2.5, aes(color=line)) + xlab("Generation Intersect") + ylab("Number of ASVs") + scale_x_discrete(labels=x_labels) + my_theme + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) + guides(color=guide_legend(ncol=3)) + theme(legend.position = "none")
+overlap_plot
+#ggsave("overlap_plot.png", overlap_plot, width=8, height=6, units="in")
+
+
+# use for proportion plot
+prop_x_order <- c("G1", "G2", "G1_G2\nOverlap")
+prop_x_labels <- c("G1 Only", "G2 Only", "G1_G2\nOverlap")
+
+# plot proportion of ASVs in each line that are in each generation or overlapping
+proportion_plot <- ggplot(data=proportion_data, aes(x=factor(intersects, level=prop_x_order), y=proportion)) + geom_boxplot(outlier.shape = NA) + geom_jitter(width=0.2, size=2.5, aes(color=line)) + xlab("Generation Intersect") + ylab("Proportion of the total ASVs per line") + scale_x_discrete(labels=prop_x_labels) + ylim(0, 1) + my_theme + scale_color_manual(name = "Parent Line", values=line_colors, labels = line_list) + guides(color=guide_legend(ncol=3)) 
+proportion_plot
+
+# Combine with patchwork
+violins_patchwork <- (overlap_plot | proportion_plot) + plot_annotation(tag_levels = list(c("C", "D")))
+violins_patchwork
+ggsave("/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/overlap_plot_violins.png", violins_patchwork, width=13, height=6, units="in")
+
+# will combine this figure with the upset plot in powerpoint (UpsetR does not integrate with ggplot2)
+
+
+#### upset plot with relative abundance ####
+
+# All generations
+merged_all <- merge_samples(seed_phyloseq_decontam, "Generation")
+count_16S_all <- t(otu_table(merged_all))
+count_16S_all[count_16S_all > 0] <- 1
+df_16S_all <- as.data.frame(count_16S_all)
+rel.abu_all <- data.frame(taxa_sums(seed_phyloseq_decontam))
+rel.abu_all$log <- log10(rel.abu_all$taxa_sums.seed_phyloseq_decontam)
+df_16S_upset_all <-merge.data.frame(df_16S_all, rel.abu_all, by="row.names", all.x=TRUE)
+Upset_16S_all <- upset(df_16S_upset_all,
+                      nintersects = 50, #max number of combinations
+                      order.by = "freq",  #putting highest numbered group first
+  sets.x.label="ASVs per generation\nAll Samples",text.scale=c(1.3,1.3,1.3,1,1.8,2.5),  #text
+                      decreasing ="TRUE", mainbar.y.label = "Number of ASVs per Intersect", 
+                boxplot.summary = c("log"))
+Upset_16S_all
+length(unique(df_16S_upset_all$Row.names))
+
+# compare avg log relative abundance of asvs in 1 gen verses 2 and 3
+# add a column of sum of G1 and G2, if 2 then they are overlapping, if 1 then they are not
+df_16S_upset_all$n_gen <- df_16S_upset_all$G0 + df_16S_upset_all$G1 + df_16S_upset_all$G2
+df_16S_upset_all <- filter(df_16S_upset_all, taxa_sums.seed_phyloseq_decontam. != 0)
+df_16S_upset_all$n_gen <- as.factor(df_16S_upset_all$n_gen)
+
+hist(filter(df_16S_upset_all, n_gen == 1)$log)
+hist(filter(df_16S_upset_all, n_gen == 2)$log)
+hist(filter(df_16S_upset_all, n_gen == 3)$log)
+# relatively normal data
+
+# levene's test
+leveneTest(log ~ n_gen, data=df_16S_upset_all)
+# variance is not the same across dataset, use kruskal wallis
+
+rel_abu_kw <- kruskal_test(data=df_16S_upset_all, log ~ n_gen)
+rel_abu_kw
+rel_abu_dunn <- dunn_test(data=df_16S_upset_all, log ~ n_gen, p.adjust.method = "BH") #Benjamini-Hochberg adjustment
+rel_abu_dunn
+
+
+(df_16S_upset_all %>% group_by(n_gen) %>% summarise(n=n()))
+
+colnames(df_16S_upset_all)[6] <- "log Relative\nAbundance"
+Upset_16S_all_label <- upset(df_16S_upset_all,
+                      nintersects = 50, #max number of combinations
+                      order.by = "freq",  #putting highest numbered group first
+  sets.x.label="Total ASVs\nper Generation",text.scale=c(1.3,1.3,1.3,1,1.8,2.5),  #text
+                      decreasing ="TRUE", mainbar.y.label = "ASVs per\nGeneration Intersect", 
+                boxplot.summary = c("log Relative\nAbundance"))
+Upset_16S_all_label
+# png(file="overlap_upset_plot_all.png", width=9, height=5, units="in", res=300)
+# Upset_16S_all_label
+# dev.off()
+
+# relative abundance boxplot
+colnames(df_16S_upset_all)[6] <- "log"
+boxplot(log ~ n_gen, data=df_16S_upset_all)
+
+rel_abund_anno <- data.frame(x1 = c(2, 1, 1), 
+                               x2 = c(3, 3, 2), 
+                              y1 = c(5, 5.3, 3.4), 
+                              y2 = c(5.1, 5.4, 3.5), 
+                              xstar = c(2.5, 2, 1.5), 
+                              ystar = c(5.2, 5.5, 3.6),
+                   lab = c("*", "*", "*"))
+rel_abund_anno 
+
+rel_abund_plot <- ggplot(data=df_16S_upset_all, aes(x=n_gen, y=log)) + geom_boxplot(fill="gray") + xlab("Number of Generations") + ylab("Log Relative Abundance") + my_theme + stat_summary(shape=15) + 
+  geom_text(data = rel_abund_anno, aes(x = xstar,  y = ystar, label = lab), size=6) +
+  geom_segment(data = rel_abund_anno, aes(x = x1, xend = x1, 
+           y = y1, yend = y2),
+           colour = "black") +
+  geom_segment(data = rel_abund_anno, aes(x = x2, xend = x2, 
+           y = y1, yend = y2),
+           colour = "black") +
+  geom_segment(data = rel_abund_anno, aes(x = x1, xend = x2, 
+           y = y2, yend = y2),
+           colour = "black") + ylim(c(0, 5.6)) + scale_y_continuous(breaks=c(0,1,2,3,4,5))
+rel_abund_plot
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/rel_abund_plot.png", plot = rel_abund_plot, width=6, height=5, units="in")
+
+# G1-G2 only
+G1_G2_merged_all <- merge_samples(G1_G2_phyloseq, "Generation")
+#sample_data(G1_G2_merged_all)
+G1_G2_count_16S_all <- t(otu_table(G1_G2_merged_all))
+G1_G2_count_16S_all[G1_G2_count_16S_all > 0] <- 1
+G1_G2_df_16S_all <- as.data.frame(G1_G2_count_16S_all)
+G1_G2_rel.abu_all <- data.frame(taxa_sums(G1_G2_phyloseq))
+G1_G2_rel.abu_all$log <- log10(G1_G2_rel.abu_all$taxa_sums.G1_G2_phyloseq)
+G1_G2_df_16Sf_upset_all <-merge.data.frame(G1_G2_df_16S_all, G1_G2_rel.abu_all, by="row.names", all.x=TRUE)
+colnames(G1_G2_df_16Sf_upset_all)[5] <- "log Relative\nAbundance"
+colnames(G1_G2_df_16Sf_upset_all)[4] <- "Relative\nAbundance"
+
+G1_G2_Upset_16S_all <- upset(G1_G2_df_16Sf_upset_all,
+                      nintersects = 50, #max number of combinations
+                      order.by = "freq",  #putting highest numbered group first
+  sets.x.label="Total ASVs\nper Generation",  #text
+                      decreasing ="TRUE", mainbar.y.label = "ASVs per\nGeneration Intersect", 
+                boxplot.summary = c("log Relative\nAbundance"), text.scale=c(1.5,1.5,1.5,1,1.8,2.5)) #,
+G1_G2_Upset_16S_all
+
+# png(file="overlap_upset_plot.png", width=6.5, height=4.75, units="in", res=300)
+# G1_G2_Upset_16S_all
+# dev.off()
+
+# t test compare avg log relative abundance of asvs in 2 gens verses 1
+# add a column of sum of G1 and G2, if 2 then they are overlapping, if 1 then they are not
+#G1_G2_df_16Sf_upset_all$n_gen <- G1_G2_df_16Sf_upset_all$G1 + G1_G2_df_16Sf_upset_all$G2
+#G1_G2_df_16Sf_upset_all
+#rel_abu_ttest <- t.test(log ~ n_gen,  data=G1_G2_df_16Sf_upset_all)
+#rel_abu_ttest
+
+#overlap_list <- filter(G1_G2_df_16Sf_upset_all, n_gen == 2)
+#unique(overlap_list$Row.names)
+
+
+# Find oveerlapping taxa in specific lines ####
+taxa_in_overlaps <- new_full_data %>% group_by(line, asvID) %>% mutate(n_gen = sum(pa_max)) %>% arrange(asvID, line) %>% mutate(intersects = if_else(n_gen == 2, "G1_G2\nOverlap", Generation)) %>% ungroup()  %>% filter(intersects == "G1_G2\nOverlap") %>% mutate(asvID = gsub("^X", "", asvID)) %>% mutate(G1_Treatment = if_else(substr(line, 1, 1) %in% "C", "Control",
+                                      if_else(substr(line, 1, 1) %in% "N", "Nutrient",
+                                      if_else(substr(line, 1, 1) %in% "D", "Drought", NA)))) %>% mutate(trans_rate = if_else(substr(pa_samples, 1, 1) %in% 1, 0.33,
+                                      if_else(substr(pa_samples, 1, 1) %in% 2, 0.66,
+                                      if_else(substr(pa_samples, 1, 1) %in% 3, 1.00, NA)))) #%>% group_by(line, asvID, intersects)
+unique(taxa_in_overlaps$asvID)
+
+all_g1g2_taxa <- c(taxa_in_overlaps$asvID) %>% unique()
+
+taxa_in_overlaps$line <- as.factor(taxa_in_overlaps$line)
+
+# These are the taxa that are found in g1 and g2 within a line, verses the 223 in the upset are across the whole dataset, not tracked by line
+
+taxa_in_control_overlaps <- taxa_in_overlaps %>%  group_by(asvID, G1_Treatment, Generation) %>% filter(G1_Treatment == "Control") %>% summarise(n_lines = n())# %>%  filter(n_lines ==1)
+# 63 total taxa in at least one G1_G2 overlap
+# 9 taxa in all 12 lines
+# 21 taxa in more than half of the lines
+# 39 in <50%
+# 22 only found in 1 line
+control_taxa_list <- c(taxa_in_control_overlaps$asvID)
+
+taxa_in_drought_overlaps <- taxa_in_overlaps %>%  group_by(asvID, G1_Treatment, Generation) %>% filter(G1_Treatment == "Drought") %>% summarise(n_lines = n()) # %>% filter(n_lines == 1)
+# 76 total taxa in at least one G1_G2 overlap
+# 15 taxa in all 12 lines
+# 22 taxa in more than half of the lines
+# 51 in <50%
+# 38 only found in 1 line
+drought_taxa_list <- c(taxa_in_drought_overlaps$asvID)
+
+taxa_in_nutrient_overlaps <- taxa_in_overlaps %>%  group_by(asvID, G1_Treatment, Generation) %>% filter(G1_Treatment == "Nutrient") %>% summarise(n_lines = n()) #%>% filter(n_lines == 1)
+# 65 total taxa in at least one G1_G2 overlap
+# 14 taxa in all 12 lines
+# 21 taxa in more than half of the lines
+# 44 in <50%
+# 26 only found in 1 line
+nutrient_taxa_list <- c(taxa_in_nutrient_overlaps$asvID)
+
+
+# getting data for bubble plot figure
+
+taxa_in_all_lines <- taxa_in_overlaps %>% filter(Generation == 'G2') %>% group_by(asvID) %>% summarise(n_lines = n(), avg_trans = mean(trans_rate)) %>% ungroup() %>% arrange(desc(n_lines)) # %>% ungroup() %>% group_by(asvID) %>% summarise(avg_trans = mean(trans_rate)) %>% filter(all_lines == 36) #%>% mutate(asvID = gsub("^X", "", asvID))
+# 9 taxa found in all 36 lines, 2 are core taxa, all 9 are also found in G0
+all_line_taxa_list <- c(taxa_in_all_lines$asvID)
+core_taxa_in_all <- intersect(all_line_taxa_list, core_taxa)
+all_gen_core <- intersect(g0_taxa_list, all_line_taxa_list)
+
+taxa_order_nlines <- c(taxa_in_all_lines$asvID)
+
+taxa_filter <- taxa_in_all_lines %>% filter(n_lines != 1)
+taxa_filter_list <- c(taxa_filter$asvID)
+
+taxa_in_overlaps_filter <- taxa_in_overlaps %>% filter(asvID %in% taxa_filter_list)
+
+taxa_order_nlines_filter <- intersect(taxa_order_nlines, taxa_filter_list)
+
+in_g0_70overlap <- taxa_order_nlines_filter %in% g0_taxa_list
+in_g0_99overlap <- taxa_order_nlines %in% g0_taxa_list
+sum(in_g0_99overlap)
+sum(in_g0_70overlap)
+
+taxa_filter$G0 <- in_g0_70overlap
+
+taxa_filter$Present_in_G0 <- if_else(taxa_filter$G0 == TRUE, 1, 0)
+
+taxa_filter$line <- "ASV_in_G0"
+
+
+#### bubble plot ####
+bubble_plot_99 <- ggplot(data=taxa_in_overlaps, aes(x=line, y=factor(asvID, level=taxa_order_nlines))) + geom_point(aes(size=factor(trans_rate), color=factor(trans_rate))) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + scale_color_manual(values=c("#66B2FF", "#0066cc", "#003366"), breaks=waiver()) + scale_size_manual(values=c(2, 3.5, 6), breaks = waiver())
+bubble_plot_99
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot.png", bubble_plot_99, width=15, height=20, units="in")
+
+# add numbers for taxa IDs
+taxa_df <- data.frame(taxa_order_nlines_filter)
+taxa_df$taxaID <- seq(1,70, by=1)
+colnames(taxa_df)[1] <- "asvID"
+taxa_in_overlaps_filter <- left_join(taxa_in_overlaps_filter, taxa_df)
+
+# filtered out the ASVs in only one line
+bubble_plot_70 <- ggplot(data=taxa_in_overlaps_filter, aes(x=line, y=factor(taxaID))) + geom_point(aes(size=factor(pa_samples), color=factor(pa_samples))) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + scale_color_manual(name="Number of\nOffspring in G2", values=c("#66B2FF", "#0066cc", "#003366"), breaks=waiver()) + scale_size_manual(name="Number of\nOffspring in G2", values=c(2, 3.5, 6), breaks = waiver()) + xlab("Parental Line") + ylab("Transmitted ASV")
+bubble_plot_70
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_70.png", bubble_plot_70, width=13.7, height=14, units="in")
+
+# create column of presence in G0
+bubble_plot_g0 <- ggplot(data=taxa_filter, aes(x=line, y=factor(asvID, level=taxa_order_nlines_filter))) + geom_point(aes(size=factor(Present_in_G0), color=factor(Present_in_G0))) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + scale_color_manual(name = "ASV Present\nin G0", values=c("white", "black"), breaks=waiver(), labels=c("No", "Yes")) + scale_size_manual(name = "ASV Present\nin G0", values=c(0, 6), breaks = waiver(), labels=c("No", "Yes")) + theme(axis.text.y=element_blank(), axis.title.y = element_blank())
+bubble_plot_g0
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_g0.png", bubble_plot_g0, width=2, height=14, units="in")
+
+# core taxa 
+otu_hits_table <- read.csv("/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/OTU_hits.csv", sep=",", header=TRUE) 
+taxa_filter_core <- left_join(taxa_filter, otu_hits_table)
+taxa_filter_core$Core <- "Core_Taxa"
+taxa_filter_core$OTU[3] <- "Seed"
+taxa_filter_core$OTU[5] <- "Seed"
+taxa_filter_core$taxaID <- seq(1,70, by=1)
+taxa_filter_core$OTU[50] <- "Seed"
+taxa_filter_core$otu_true <- taxa_filter_core$OTU
+taxa_filter_core$otu_true <- replace_na(taxa_filter_core$otu_true, replace="N/A")
+taxa_filter_core$otu_data <- if_else(substr(taxa_filter_core$otu_true, 1, 1) %in% "S", 1,
+                                     if_else(substr(taxa_filter_core$otu_true, 1, 1) %in% "N", 0,
+                                     2))
+
+# create column
+bubble_plot_core <- ggplot(data=taxa_filter_core, aes(x=Core, y=factor(asvID, level=taxa_order_nlines_filter))) + geom_point(aes(color=factor(otu_data), size=factor(otu_data)), shape=15) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + scale_color_manual(name = "Core Taxa", values=c("white", "#006CD1", "#994F00"), labels=c("N/A", "Seed", "Rhizosphere")) + scale_size_manual(name = "Core Taxa", values=c(0, 6, 6), labels=c("N/A", "Seed", "Rhizosphere")) + theme(axis.text.y=element_blank(), axis.title.y = element_blank())
+bubble_plot_core
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_core.png", bubble_plot_core, width=2.1, height=14, units="in")
+
+# taxonomy bubble plot ####
+taxa_order_nlines_filter
+taxa_filter_table <- data.frame(taxa_order_nlines_filter) %>% rownames_to_column() 
+colnames(taxa_filter_table)[2] <- "ASVID"
+g1_g2_taxonomy <- data.frame(tax_table(G1_G2_phyloseq)) %>% rownames_to_column()
+colnames(g1_g2_taxonomy)[1] <- "ASVID"
+g1_g2_tax_filter <- left_join(taxa_filter_table, g1_g2_taxonomy)
+g1_g2_tax_filter$line <- "Order"
+g1_g2_tax_filter <- g1_g2_tax_filter %>% mutate(Family = gsub(pattern = "f__", Family, replacement = ""))
+g1_g2_tax_filter <- g1_g2_tax_filter %>% mutate(Order = gsub(pattern = "o__", Order, replacement = ""))
+
+length(unique(g1_g2_tax_filter$Genus)) #34, 16 blank or "uncultured"
+#unique(g1_g2_tax_filter$Genus)
+length(unique(g1_g2_tax_filter$Family)) #39
+length(unique(g1_g2_tax_filter$Order)) #26
+
+colors_a <- paletteer_d("ggthemes::Classic_20")
+colors_b <- paletteer_d("tvthemes::kimPossible") #12
+colors_b_6 <- colors_b[7:12]
+colors_b_pick <- c(colors_b[2], colors_b[4], colors_b[6:7], colors_b[9:12])
+colors_c <- paletteer_dynamic("cartography::multi.pal", 20)
+colors_c_pick <- c(colors_c[1], colors_c[3], colors_c[5], colors_c[8:11], colors_c[14], colors_c[15:17])
+
+colors_39 <- c(colors_a, colors_b_pick, colors_c_pick)
+colors_26 <- c(colors_b_6, colors_a)
+
+bubble_plot_tax_F <- ggplot(data=g1_g2_tax_filter, aes(x=line, y=factor(ASVID, level=taxa_order_nlines_filter))) + geom_point(aes(color=factor(Family)), size=6) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + theme(axis.text.y=element_blank(), axis.title.y = element_blank()) + scale_color_manual(name = "ASV Family", values=colors_39, breaks=waiver(), labels=waiver()) + guides(color=guide_legend(ncol=4)) 
+bubble_plot_tax_F
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_tax_family.png", bubble_plot_tax_F, width=7.2, height=14, units="in")
+
+bubble_plot_tax_o <- ggplot(data=g1_g2_tax_filter, aes(x=line, y=factor(ASVID, level=taxa_order_nlines_filter))) + geom_point(aes(color=factor(Order)), size=6) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + theme(axis.text.y=element_blank(), axis.title.y = element_blank()) + scale_color_manual(name = "ASV Order", values=colors_26, breaks=waiver(), labels=waiver()) + guides(color=guide_legend(ncol=4)) 
+bubble_plot_tax_o
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_tax_order.png", bubble_plot_tax_o, width=6.7, height=14, units="in")
+
+
+# add bubble plot with relative abundance ####
+# dataframe with relative abundance of ASVs across all g1 and g2
+#G1_G2_df_16Sf_upset_all 
+# add "line" column with "Abundance", filter to the 70 taxa list and plot x=line, y=ASVID, geom_point aes(color=log)
+G1_G2_df_16Sf_upset_all$line <- "Abundance" 
+# join to taxa_filter_table
+colnames(G1_G2_df_16Sf_upset_all)[1] <- "ASVID"
+colnames(G1_G2_df_16Sf_upset_all)[5] <- "log"
+abundance_table_70 <- left_join(taxa_filter_table, G1_G2_df_16Sf_upset_all)
+#abundance_table_70
+
+bubble_plot_abundance <- ggplot(data=abundance_table_70, aes(x=line, y=factor(ASVID, level=taxa_order_nlines_filter))) + geom_point(aes(color=log), size=6, shape=15) + scale_y_discrete(limits=rev) + scale_x_discrete(position = "top") + theme(axis.text.y=element_blank(), axis.title.y = element_blank()) + scale_color_gradient(name = "Log Relative\nAbundance G1_G2", limits=c(1, 5), low="white", high="#9C0824") # scale_size_continuous(name="Log Relative\nAbundance G1_G2", limits=c(1, 5)) +
+bubble_plot_abundance
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/bubble_plot_abundance.png", bubble_plot_abundance, width=2.4, height=14, units="in")
+
+colnames(taxa_filter_core)[1] <- "ASVID"
+supp_table_3 <- left_join(taxa_filter_core, g1_g2_tax_filter, by="ASVID")
+#write.csv(supp_table_3, file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/supp_table_3.csv")
+
+
+meta_list <- read.csv(file="/Users/Abby/OneDrive - Michigan State University/sample_list.csv")
+meta_datatable <- read.csv(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/seed_meta_update.csv")
+meta_join <- left_join(meta_list, meta_datatable)
+write.csv(meta_join, file="/Users/Abby/OneDrive - Michigan State University/metadata_joined.csv")
+
+
+# transmission rate analysis ####
+
+g2_transmission_data <- taxa_in_overlaps %>% filter(Generation == "G2")
+
+
+
+g2_trans_plot <- ggplot(data=g2_transmission_data, aes(x=line, y=trans_rate)) + geom_violin() + geom_jitter()
+g2_trans_plot
+
+#chi square with counts
+g2_transmission_data$pa_samples <- as.factor(g2_transmission_data$pa_samples)
+
+chisq_data_trt <- g2_transmission_data %>% group_by(G1_Treatment) %>% count(pa_samples)
+trt_table <- chisq_data_trt %>% pivot_wider(names_from = G1_Treatment, values_from = n) %>% as.matrix() 
+#works but makes numbers characters, try a different way?
+trt_table <- matrix(data=chisq_data_trt$n, nrow = 3, ncol = 3, byrow = TRUE)
+# yes!
+dimnames(trt_table) <- list(treatment = c("C", "D", "N"), transmission = c("1","2", "3"))
+Xsq_trt <- chisq.test(trt_table)
+Xsq_trt
+
+chisq_data_line <- g2_transmission_data %>% group_by(line) %>% count(pa_samples)
+line_table <- matrix(data=chisq_data_line$n, nrow = 36, ncol = 3, byrow = TRUE)
+dimnames(line_table) <- list(line = c(unique(chisq_data_line$line)),
+                    transmission = c("1","2", "3"))
+Xsq_line <- chisq.test(line_table)
+Xsq_line
+
+
+# venn diagrams ####
+venn.diagram(x = list(control_taxa_list, drought_taxa_list, nutrient_taxa_list), filename="treatment_taxa_venn.png", imagetype = "png", category.names = c("Control Lines\n(63 Total)", "Drought Lines\n(76 Total)", "Nutrient Lines\n(65 Total)"), fontfamily="sans", cat.fontfamily="sans", main="Taxa in G1-G2 Overlaps Shared Between Parent Lines", main.fontfamily = "sans", main.fontface="bold", disable.logging=TRUE, na="remove", width=9, height=9, units="in", cex=2.5, main.cex=2, cat.cex=1.8, col=c("#3399FF", "#FFCC00", "#18902B")) #, cat.col=c("black", "#3399FF", "#FF6600")
+
+stress_list <- intersect(drought_taxa_list, nutrient_taxa_list)
+all_list <- intersect(control_taxa_list, stress_list)
+all_core <- intersect(all_list, all_gen_core)
+all_list %in% g0_taxa_list
+
+# where is the last core member?
+"cc761daf51f27c423da57f3f1f0ff5cc" %in% control_taxa_list
+"cc761daf51f27c423da57f3f1f0ff5cc" %in% drought_taxa_list
+"cc761daf51f27c423da57f3f1f0ff5cc" %in% nutrient_taxa_list
+
+
+
+CN_1line <-  unique(c(nutrient_taxa_list, control_taxa_list))
+D_unique <- setdiff(drought_taxa_list, CN_1line)
+setdiff(D_unique, g0_taxa_list)
+
+CD_1line <-  unique(c(drought_taxa_list, control_taxa_list))
+N_unique <- setdiff(nutrient_taxa_list, CD_1line)
+
+ND_1line <-  unique(c(drought_taxa_list, nutrient_taxa_list))
+C_unique <- setdiff(control_taxa_list, ND_1line)
+
+c_d_list <- intersect(drought_taxa_list, control_taxa_list)
+all_trt_list <- intersect(nutrient_taxa_list, c_d_list) # 43 taxa
+in_g0 <- intersect(g0_taxa_list, all_trt_list) # 42 of the 43 are found in G0
+
+TF_all_g1g2 <- all_g1g2_taxa %in% g0_taxa_list 
+table(TF_all_g1g2) # 14 false, 85 true
+
+all_1line <- unique(c(control_taxa_list,drought_taxa_list,nutrient_taxa_list)) # 59 total
+table(all_1line %in% g0_taxa_list) # 10 F, 49 T
+
+# single line, but not in G0
+table(control_taxa_list %in% g0_taxa_list) # 4 F
+table(drought_taxa_list %in% g0_taxa_list) # 7 F
+table(nutrient_taxa_list %in% g0_taxa_list) # 4 F
+
+control_1 <- setdiff(control_taxa_list, g0_taxa_list)
+drought_1 <- setdiff(drought_taxa_list, g0_taxa_list)
+nutrient_1 <- setdiff(nutrient_taxa_list, g0_taxa_list)
+
+intersect(drought_1, nutrient_1) # 2 match
+intersect(drought_1, control_1) # 2 match, one also in nutrient
+intersect(control_1, nutrient_1) # 2, one also in drought
+
+# taxa in 1 line venn diagram
+venn.diagram(x = list(control_taxa_list, drought_taxa_list, nutrient_taxa_list), filename="1line_taxa_venn.png", imagetype = "png", category.names = c("Control Lines\n(22 total)", "Drought Lines\n(38 total)", "Nutrient Lines\n(26 total)"), fontfamily="sans", cat.fontfamily="sans", main="Taxa in only 1 G1-G2 Line", main.fontfamily = "sans", main.fontface="bold", disable.logging=TRUE, na="remove", width=9, height=9, units="in", cex=2.5, main.cex=2, cat.cex=1.8, col=c("#3399FF", "#FFCC00", "#18902B")) 
+ 
+```
+
+
+# barplots of all generations and 70 taxa in the lines
+
+```{r barplots}
+
+
+# genus plot on all generations combined
+# Genus
+barplot.data.genus_all <- tax_glom(seed_phyloseq_decontam, taxrank = "Genus", NArm = F)
+barplot.data.genus.ra_all <- transform_sample_counts(barplot.data.genus_all, function(x) x/sum(x))
+barplot.data.genus.ra_all
+
+df.barplot.genus_all <- psmelt(barplot.data.genus.ra_all) %>%
+  group_by(SampleID, Generation, G1_treatment, line, Genus) %>%
+  summarize(Mean = mean(Abundance)) %>%
+  arrange(-Mean)
+
+df.barplot.genus_all$Genus <- as.character(df.barplot.genus_all$Genus) #convert to character
+
+#rename phyla with < 0.5% abundance
+df.barplot.genus_all$Genus[df.barplot.genus_all$Mean < 0.005] <- "< 0.5% abund."
+
+#Count # genera to set color palette
+Count_all = length(unique(df.barplot.genus_all$Genus))
+Count_all #31
+
+colors_a
+colors_b
+colors_31 <- c(colors_a, colors_b[1:4], colors_b[6:12])
+
+# Create the plot
+barplot.genus.plot_all <- ggplot(data=df.barplot.genus_all, aes(x=line, y=Mean, fill=Genus)) + 
+  scale_fill_manual(values=colors_31, labels=waiver()) + ylab("Mean Relative Abundance") + xlab("Plant Line") +
+                     geom_bar(aes(), stat="identity", position="fill") + facet_grid(row=vars(Generation), cols=vars(G1_treatment), scales="free_x") + guides(fill=guide_legend(ncol=1))
+barplot.genus.plot_all
+
+#ggsave(filename="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/line_genus_barplot_all.png", plot=barplot.genus.plot_all, width=18, height=14, units="in")
+
+# made adjustments to plot in powerpoint
+
+
+
+
+
+# genus 70 overlap taxa #
+# use the list of 99 ASVs in the overlaps, then prune phyloseq object to only those taxa
+#all_g1g2_taxa
+
+overlap_phyloseq <- prune_taxa(all_g1g2_taxa, G1_G2_phyloseq)
+
+overlap_phyloseq
+
+# filter to G2
+overlap_phyloseq_G2 <- overlap_phyloseq %>% 
+  ps_filter(Generation == "G2", .keep_all_taxa = F)
+
+# filter 99 to top 70
+overlap_phyloseq_G2_70 <- prune_taxa(taxa_order_nlines_filter, overlap_phyloseq_G2)
+
+
+overlap.genus_70 <- tax_glom(overlap_phyloseq_G2_70, taxrank = "Genus", NArm = F)
+overlap.genus.ra_70 <- transform_sample_counts(overlap.genus_70, function(x) x/sum(x))
+overlap.genus.ra_70
+
+df.overlap.genus_70 <- psmelt(overlap.genus.ra_70) %>%
+  group_by(SampleID, G1_treatment, line, Genus) %>%
+  summarize(Mean = mean(Abundance)) %>%
+  arrange(-Mean)
+
+df.overlap.genus_70$Genus <- as.character(df.overlap.genus_70$Genus) #convert to character
+
+length(unique(df.overlap.genus_70$Genus)) # 34
+
+colors_34 <- c(colors_a, colors_b, colors_c)
+
+overlap.genus.plot_70 <- ggplot(data=df.overlap.genus_70, aes(x=line, y=Mean, fill=Genus)) + 
+                     geom_bar(aes(), stat="identity", position="fill") + facet_wrap(~G1_treatment, scales="free_x") + guides(fill=guide_legend(ncol=2)) + scale_fill_manual(values=colors_34, labels=waiver())
+overlap.genus.plot_70
+
+#ggsave("/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/overlap.genus.plot_70.png", overlap.genus.plot_70, height=8, width=15, units = "in")
+
+
+```
+
