@@ -1,6 +1,6 @@
 ---
 title: "Bean Seed Transmission Analysis"
-author: "Abby Sulesky"
+author: "Abby Sulesky-Grieb"
 date: "2023-12-07"
 output: html_document
 ---
@@ -38,7 +38,10 @@ library(car)
 ```
 
 
-## Rarefaction curve
+## Rarefaction curve figure
+
+The non-rarefied dataset was used to preserve all rare taxa
+
 ```{r rarefaction_curve}
 # Read in decontaminated phyloseq object
 seed_phyloseq_decontam <- readRDS(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/seed_phyloseq_decontam.rds")
