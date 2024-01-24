@@ -365,6 +365,7 @@ seed_G2_3plot_WU
 
 
 # beta dispersion
+Functions for plotting data from betadisper() with ggplot2 were written by Daniel Padfield (https://gist.github.com/padpadpadpad/4201dc530b18a8d36363d37286edfc7c)
 ```{r betadisper}
 # functions for plotting with ggplot ####
 # getting distances from betadisper() object
