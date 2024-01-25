@@ -29,7 +29,7 @@ Code used for sequence processing including read QC, ASV clustering, taxonomy as
 Code for sequence decontamination by extraction group can be found in [Seed_analysis_sequence_decontam.Rmd](https://github.com/ShadeLab/Seed_transmission_Common_Bean/blob/main/Seed_analysis_sequence_decontam.Rmd). Output ASV table, taxonomy and metadata files from QIIME2 were used to create a Phyloseq object in R, labelled multigen_phyloseq.rds. Files are available in R_Analysis_Files folder. 
 
 #### Analysis
-Formal analysis can be found under  [Bean_seed_transmission_analysis_clean.Rmd](https://github.com/ShadeLab/Seed_transmission_Common_Bean/blob/main/Bean_seed_transmission_analysis_clean.Rmd). All analysis was run with R and code was run in Rmarkdown. After sequence decontamination, the phylogenetic tree was added to the Phyloseq object, and metadata was updated with additional variables for analysis. These files are labelled tree.nwk and seed_meta_update.csv. The updated Phyloseq object labelled seed_phyloseq_decontam_updatemeta.rds.
+Formal analysis can be found under  [Bean_seed_transmission_analysis_clean.Rmd](https://github.com/ShadeLab/Seed_transmission_Common_Bean/blob/main/Bean_seed_transmission_analysis_clean.Rmd). All analysis was run with R and code was run in Rmarkdown. After sequence decontamination, the phylogenetic tree was added to the Phyloseq object, and metadata was updated with additional variables for analysis. These files are labelled tree.nwk and seed_meta_update.csv. The updated Phyloseq object is labelled seed_phyloseq_decontam_updatemeta.rds. The list of core bean seed ASVs and the bean root core taxa FASTA file can be found in the R_Analysis_Files folder.
 
 
 ### Funding
