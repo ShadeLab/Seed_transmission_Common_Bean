@@ -72,7 +72,7 @@ saveRDS(multigen_phyloseq, file="/Users/Abby/OneDrive - Michigan State Universit
 # Decontam the multigen experiment
 ### Start by removing host reads
 ```{r host_remove}
-multigen_phyloseq <- readRDS(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/New_argonne_seqs/multigen_phyloseq.rds")
+multigen_phyloseq <- readRDS(file="/Users/Abby/OneDrive - Michigan State University/multigen_analysis/seeds/Seed_transmission_Common_Bean/R_Analysis_Files/multigen_phyloseq.rds")
 
 multigen_metadata <- sample_data(multigen_phyloseq)
 
