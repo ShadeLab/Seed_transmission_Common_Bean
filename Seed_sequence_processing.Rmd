@@ -2,11 +2,13 @@
 title: "Argonne_Seed_seq_processing_June2023"
 author: "Abby Sulesky-Grieb"
 date: "2023-06-20"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
 ```
 # Code used on the MSU HPCC for QIIME2 workflow
 
